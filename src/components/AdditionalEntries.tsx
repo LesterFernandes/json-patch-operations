@@ -12,6 +12,16 @@ const AdditionalEntries: React.FC<IProps> = ({
   newValue,
   acceptRejectHandlers,
 }) => {
+  const NewValueEl = () => {
+    return typeof newValue == "object" ? (
+      <pre>
+        <span className="">{JSON.stringify(newValue, null, 2)}</span>
+      </pre>
+    ) : (
+      <span>{newValue}</span>
+    );
+  };
+
   return (
     <OverlayTrigger
       rootClose
@@ -26,7 +36,10 @@ const AdditionalEntries: React.FC<IProps> = ({
       }
     >
       <div className="text-bg-success bg-opacity-75 px-1" role="button">
-        {`${newKey} : ${newValue}`}
+        <>
+          {`${newKey} : `}
+          <NewValueEl />
+        </>
       </div>
     </OverlayTrigger>
   );

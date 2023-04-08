@@ -1,25 +1,18 @@
 import cloneDeep from "lodash.clonedeep";
-import { FC, useCallback, useState } from "react";
-import { applyPatch } from "fast-json-patch";
-import Stack from "react-bootstrap/Stack";
+import { FC, useEffect, useState } from "react";
 import Button from "react-bootstrap/Button";
-// import Form from "react-bootstrap/Form";
-import { baseObj, baseObj2, patch2, patch } from "../data";
+import Stack from "react-bootstrap/Stack";
 import "./App.css";
-import { SingleIndent } from "./components/styled";
-import DisplayDifference from "./components/DisplayDifference";
+import { IOperationType, IPatch } from "./commonInterfaces";
 import AdditionalEntries from "./components/AdditionalEntries";
+import DisplayDifference from "./components/DisplayDifference";
+import { OriginalJson } from "./components/OriginalJson";
+import { SingleIndent } from "./components/styled";
+import { useJsonContext } from "./context/JsonContext";
 
-type IOperationType = "add" | "replace";
 interface IOperation {
-  value: string;
+  value: string | Record<string, unknown>;
   op: IOperationType;
-}
-
-interface IPatch {
-  op: IOperationType;
-  path: string;
-  value: Record<string, unknown> | string;
 }
 
 const OpenBracket: FC<{ isArray?: boolean }> = ({ isArray }) => {
@@ -42,59 +35,69 @@ const applyFullIndentation: (
 const editBaseJson = (
   obj: Record<string, unknown>,
   path: string[],
-  operation: IOperation
+  value: any
 ) => {
   if (path.length == 1) {
     let [key] = path;
-    obj[key] = operation.value;
-    return false;
-  } else if (path.length == 0) {
-    return false;
+    obj[key] = value;
+  } else {
+    let key = path.shift();
+    editBaseJson(obj[`${key}`], path, value);
   }
-  let key = path.shift();
-  return editBaseJson(obj[key], path, operation);
 };
 
 const App: FC<{}> = () => {
-  const [baseJson, setJson] = useState<Record<string, unknown>>(() => {
-    // return baseObj;
-    return baseObj2;
-  });
-  const [patchJson, setPatchJson] = useState<IPatch[]>(() => {
-    // return patch
-    return patch2 as IPatch[];
-  });
+  const [baseJson, setJson] = useState<Record<string, unknown>>({});
+  const [patchJson, setPatchJson] = useState<IPatch[]>([]);
 
-  // const [inpBaseJson, setInpBaseJson] = useState("");
-  // const [inpPatchJson, setInpPatchJson] = useState("");
+  const { isFetching: isFetchingJsonz, data, updateContext } = useJsonContext();
 
-  const acceptClickHandler = useCallback(
-    (path: string[], operation: IOperation) => {
+  useEffect(() => {
+    if (isFetchingJsonz == false) {
+      const { json, patch } = cloneDeep(data);
+      const allAddOps: IPatch[] = patch.filter(
+        ({ op }) => op == "add"
+      ) as IPatch[];
+
+      allAddOps.forEach(({ path, value }) => {
+        const [_, ...pathz] = path.split("/");
+        editBaseJson(json, pathz, value);
+      });
+      setJson(json);
+      setPatchJson(patch);
+    }
+  }, [isFetchingJsonz]);
+
+  const acceptClickHandler = (path: string[], operation: IOperation) => {
+    if (operation.op == "replace") {
       const baseClone = cloneDeep(baseJson);
-      if (operation.op == "replace") {
-        editBaseJson(baseClone, [...path], operation);
-        setJson(baseClone);
-      } else if (operation.op == "add") {
-        const allAddOps: IPatch[] = patchJson.filter(({ op }) => op == "add");
-        const newDoc = applyPatch(baseClone, allAddOps).newDocument;
-        setJson(newDoc);
-      }
-      patchJson.splice(
-        patchJson.findIndex((p) => p.path === "/" + path?.join("/")),
-        1
-      );
-      setPatchJson([...patchJson]);
-    },
-    []
-  );
+      editBaseJson(baseClone, [...path], operation.value);
+      setJson(baseClone);
+    }
 
-  const rejectClickHandler = useCallback((path: string[]) => {
     patchJson.splice(
       patchJson.findIndex((p) => p.path === "/" + path?.join("/")),
       1
     );
     setPatchJson([...patchJson]);
-  }, []);
+
+    if (updateContext) {
+      const contextJsonClone = cloneDeep(data.json);
+      editBaseJson(contextJsonClone, [...path], operation.value);
+      updateContext({json: contextJsonClone, patch: patchJson})
+    }
+  };
+
+  const rejectClickHandler = (path: string[]) => {
+    patchJson.splice(
+      patchJson.findIndex((p) => p.path === "/" + path?.join("/")),
+      1
+    );
+    setPatchJson([...patchJson]);
+    if (updateContext) {
+      updateContext({patch: patchJson})
+    }
+  };
 
   const acceptRejectHandlers = (path: string[], operation: IOperation) => {
     return (
@@ -191,7 +194,7 @@ const App: FC<{}> = () => {
     );
   };
 
-  const render = ({
+  const renderJson = ({
     obj,
     indentation = 0,
     path = [],
@@ -212,7 +215,7 @@ const App: FC<{}> = () => {
         );
         rez = [
           ...rez,
-          ...render({
+          ...renderJson({
             obj: obj[key] as Record<string, unknown>,
             indentation: indentation + 1,
             path: [...path, key],
@@ -240,66 +243,14 @@ const App: FC<{}> = () => {
     return rez;
   };
 
-  //Temporarily applying Add Patch
-  const allAddOps: IPatch[] = patchJson.filter(({ op }) => op == "add");
-  const withAddPatches = applyPatch(cloneDeep(baseJson), allAddOps).newDocument;
-
   return (
     <div className="container-lg mt-4">
-      {/* BUG in form */}
-      {/* <Form
-        onSubmit={(e) => {
-          e.preventDefault();
-          setJson(cloneDeep(JSON.parse(inpBaseJson)));
-          setPatchJson(cloneDeep(JSON.parse(inpPatchJson)));
-        }}
-      >
-        <Stack direction="horizontal" className="justify-content-between">
-          <Form.Group>
-            <Form.Label>Base Json</Form.Label>
-            <Form.Control
-              as="textarea"
-              rows={20}
-              cols={50}
-              value={inpBaseJson}
-              onChange={(e) => {
-                setInpBaseJson(e.target?.value.replace(/\s/g, ""));
-              }}
-            />
-          </Form.Group>
-          <Form.Group>
-            <Form.Label>JSON Patch</Form.Label>
-            <Form.Control
-              as="textarea"
-              rows={20}
-              cols={50}
-              value={inpPatchJson}
-              onChange={(e) => {
-                setInpPatchJson(e.target?.value.replace(/\s/g, ""));
-              }}
-            />
-          </Form.Group>
-        </Stack>
-        <Button className="mt-2" variant="primary" type="submit">
-          Primary
-        </Button>
-      </Form> */}
-      <Stack direction="horizontal" className="justify-content-around align-items-start">
-        <div>
-          <h2>Base Object</h2>
-          <pre>{JSON.stringify(baseJson, null, 2)}</pre>
-        </div>
-        <div>
-          <h2>JSON Patch</h2>
-          <pre>{JSON.stringify(patchJson, null, 2)}</pre>
-        </div>
-      </Stack>
-
       <div className="diff-viewer bg-dark text-light my-3 p-3">
         <OpenBracket />
-        <div className="ps-3">{render({ obj: withAddPatches })}</div>
+        <div className="ps-3">{renderJson({ obj: baseJson })}</div>
         <CloseBracket />
       </div>
+      <OriginalJson />
     </div>
   );
 };

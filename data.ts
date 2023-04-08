@@ -66,5 +66,9 @@ export const patch2 = [
     "op": "add",
     "path": "/tags/3",
     "value": "lel"
+  },{
+    "op": "add",
+    "path": "/a/b/d",
+    "value": [1,2,3]//"boom"
   }
 ];
